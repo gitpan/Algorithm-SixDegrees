@@ -11,11 +11,11 @@ Algorithm::SixDegrees - Find a path through linked elements in a set
 
 =head1 VERSION
 
-Version 0.02
+Version 0.03
 
 =cut
 
-our $VERSION = '0.02';
+our $VERSION = '0.03';
 our $ERROR = '';
 
 =head1 SYNOPSIS
@@ -28,8 +28,8 @@ our $ERROR = '';
 	@elems = $sd1->make_link('actors', 'Tom Cruise', 'Kevin Bacon');
 
 	my $sd2 = Algorithm::SixDegrees->new();
-	$sd2->forward_data_source( friends => \&friends );
-	$sd2->reverse_data_source( friends => \&friend_of );
+	$sd2->forward_data_source( friends => \&friends, @args );
+	$sd2->reverse_data_source( friends => \&friend_of, @args );
 	@elems = $sd2->make_link('friends', 'Bob', 'Mark');
 
 =head1 DESCRIPTION
@@ -64,7 +64,7 @@ sub new {
 
 =head1 FUNCTIONS
 
-=head2 forward_data_source( name => \&sub );
+=head2 forward_data_source( name => \&sub, @args );
 
 Tells C<Algorithm::SixDegrees> that all items in the data set relating to
 C<name> can be retrieved by calling C<sub>.  See L</SUBROUTINE RULES>.
@@ -77,11 +77,12 @@ should not return "Bob".
 =cut
 
 sub forward_data_source {
-	my ($self,$name, $sub) = @_;
+	my ($self, $name, $sub, @args) = @_;
 	die "Data sources must be named\n" unless defined($name);
 	die "Data sources must have code supplied\n" unless defined($sub);
 	die "Data sources must have a coderef argument\n" unless ref($sub) && isa($sub,'CODE');
-	$self->{'_source_left'}{$name} = $sub;
+	$self->{'_source_left'}{$name}{'sub'} = $sub;
+	$self->{'_source_left'}{$name}{'args'} = \@args;
 	foreach my $source (@{$self->{'_sources'}}) {
 		return if $source eq $name;
 	}
@@ -89,7 +90,7 @@ sub forward_data_source {
 	return;
 }
 
-=head2 reverse_data_source( name => \&sub );
+=head2 reverse_data_source( name => \&sub, @args );
 
 Tells C<Algorithm::SixDegrees> that all items in the data set related to 
 by C<name> can be retrieved by calling C<sub>.  See L</SUBROUTINE RULES>.
@@ -101,11 +102,12 @@ should return "Bob".
 =cut
 
 sub reverse_data_source {
-	my ($self,$name, $sub) = @_;
+	my ($self, $name, $sub, @args) = @_;
 	die "Data sources must be named\n" unless defined($name);
 	die "Data sources must have code supplied\n" unless defined($sub);
 	die "Data sources must have a coderef argument\n" unless ref($sub) && isa($sub,'CODE');
-	$self->{'_source_right'}{$name} = $sub;
+	$self->{'_source_right'}{$name}{'sub'} = $sub;
+	$self->{'_source_right'}{$name}{'args'} = \@args;
 	foreach my $source (@{$self->{'_sources'}}) {
 		return if $source eq $name;
 	}
@@ -113,7 +115,7 @@ sub reverse_data_source {
 	return;
 }
 
-=head2 data_source( name => \&sub );
+=head2 data_source( name => \&sub, @args );
 
 Sets up a data source as both forward and reverse.  This is useful if
 the data source is mutually relational; that is, in our actors/movies
@@ -123,9 +125,9 @@ has Kevin Bacon in it.
 =cut
 
 sub data_source {
-	my ($self,$name, $sub) = @_;
-	$self->forward_data_source($name,$sub);
-	$self->reverse_data_source($name,$sub);
+	my ($self, $name, $sub, @args) = @_;
+	$self->forward_data_source($name,$sub,@args);
+	$self->reverse_data_source($name,$sub,@args);
 	return;
 }
 
@@ -137,7 +139,7 @@ on calling context.
 =cut
 
 sub make_link {
-	my ($self,$mainsource, $start, $end) = @_;
+	my ($self, $mainsource, $start, $end) = @_;
 	$ERROR = undef;
 
 	unless (ref($self) && isa($self,__PACKAGE__)) {
@@ -182,11 +184,15 @@ sub make_link {
 			$leftside{$source} = {};
 			$rightside{$source} = {};
 		}
-		unless (ref($self->{'_source_left'}) && isa($self->{'_source_left'}{$source},'CODE')) {
+		unless (ref($self->{'_source_left'}) && 
+			ref($self->{'_source_left'}{$source}) &&
+			isa($self->{'_source_left'}{$source}{'sub'},'CODE')) {
 			$ERROR = "Source '$source' does not have a valid forward subroutine";
 			return;
 		}
-		unless (ref($self->{'_source_right'}) && isa($self->{'_source_right'}{$source},'CODE')) {
+		unless (ref($self->{'_source_right'}) && 
+			ref($self->{'_source_right'}{$source}) &&
+			isa($self->{'_source_right'}{$source}{'sub'},'CODE')) {
 			$ERROR = "Source '$source' does not have a valid reverse subroutine";
 			return;
 		}
@@ -342,7 +348,7 @@ sub _match_one {
 sub _match {
 	my ($self,$side,$fromsource,$tosource,$thisside,$thatside) = @_;
 	# Assume $self is OK since this is an internal function
-	return (undef,undef,'Internal error: missing code') unless isa($self->{"_source_$side"}{$fromsource},'CODE');
+	return (undef,undef,'Internal error: missing code') unless isa($self->{"_source_$side"}{$fromsource}{'sub'},'CODE');
 	return (undef,undef,'Internal error: missing side (1)') unless isa($thisside,'HASH');
 	return (undef,undef,'Internal error: missing side (2)') unless exists($thisside->{$fromsource});
 	return (undef,undef,'Internal error: missing side (3)') unless isa($thatside,'HASH');
@@ -353,7 +359,9 @@ sub _match {
 		next if exists($self->{"_investigated"}{$fromsource}{$id});
 		$self->{"_investigated"}{$fromsource}{$id} = 1;
 
-		my @ids = &{$self->{"_source_$side"}{$fromsource}}($id);
+		my $use_args = isa($self->{"_source_$side"}{$fromsource}{'args'},'ARRAY') ? 1 : 0;
+
+		my @ids = &{$self->{"_source_$side"}{$fromsource}{'sub'}}($id,($use_args?@{$self->{"_source_$side"}{$fromsource}{'args'}}:()));
 		return (undef,undef,$ERROR) if scalar(@ids) == 1 && !defined($ids[0]);
 		foreach my $thisid (@ids) {
 			unless (exists($thisside->{$tosource}{$thisid})) {
@@ -369,22 +377,30 @@ sub _match {
 
 =head1 SUBROUTINE RULES
 
-Passed-in subroutines should take one argument, which should be some
-form of unique identifier, and return a list of unique identifiers
-that have a relation to the argument.
+Passed-in subroutines should take at least one argument, which
+should be some form of unique identifier, and return a list of
+unique identifiers that have a relation to the argument.
 
 The unique identifiers must be able to be compared with C<eq>.
 
-The identifiers should be unique in datatype; that is, in an actor/movie
-relationship, "Kevin Bacon" can be both the name of an actor and a movie.
+The identifiers should be unique in datatype; that is, in an
+actor/movie relationship, "Kevin Bacon" can be both the name of an
+actor and a movie.
 
-A linked data type must return identifiers that relate across the link;
-that is, for an actor/movie relationship, an actor subroutine should return
-movies, and a movie subroutine should return actors.
+A linked data type must return identifiers that relate across the
+link; that is, for an actor/movie relationship, an actor subroutine
+should return movies, and a movie subroutine should return actors.
 
-If you return explicit undef, please set C<$Algorithm::SixDegrees::ERROR> with
-an error code.  Explicit undef means that an error occurred that should
-terminate the search; it should be returned as a one-element list.
+Additional arguments can be provided; these will be stored in the
+object and passed through as the second and further arguments to
+the subroutine.  This may be useful, for example, if you're using
+some form of results caching and need to pass a C<tie>d handle
+around.
+
+If you return explicit undef, please set C<$Algorithm::SixDegrees::ERROR>
+with an error code.  Explicit undef means that an error occurred
+that should terminate the search; it should be returned as a
+one-element list.
 
 =head1 AUTHOR
 

@@ -1,5 +1,11 @@
 Revision history for Algorithm-SixDegrees
 
+0.03	Sun Mar  6 16:45:23 CST 2005 (svn r29)
+    [ENHANCEMENTS]
+	Added support for additional arguments to subroutines.
+	Added simple test for argument support.
+	Added Build.PL support.
+
 0.02	Thu Mar  3 20:50:00 CST 2005 (svn r21)
     [ENHANCEMENTS]
 	Added error() method.
