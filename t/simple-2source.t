@@ -1,7 +1,9 @@
+#!perl -T
+
 use Test::More tests => 12;
 
 BEGIN {
-use_ok( 'Algorithm::SixDegrees' );
+	use_ok( 'Algorithm::SixDegrees' );
 }
 
 our $movie_actor_hash = {

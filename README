@@ -10,7 +10,14 @@ for the game Six Degrees of Kevin Bacon.
 REQUIREMENTS
 
 I have developed this module for use with Perl 5.6.1 and above.
-Other than that, it has no external dependencies..
+Other than that, it has no external dependencies.
+
+SAMPLES
+
+There are some samples in the F<samples/> directory; they will
+require some preparation work to be usable.  Check the scripts
+before running them for all the details.  These do have other
+dependencies that you will have to satisfy before execution.
 
 INSTALLATION
 
@@ -21,7 +28,7 @@ To install this module, run the following commands:
     make test
     make install
 
-COPYRIGHT AND LICENCE
+COPYRIGHT AND LICENSE
 
 Copyright (C) 2005 Pete Krawczyk
 

@@ -7,15 +7,15 @@ use UNIVERSAL qw(isa);
 
 =head1 NAME
 
-Algorithm::SixDegrees - Perl implementation of a path discovery algorithm
+Algorithm::SixDegrees - Find a path through linked elements in a set
 
 =head1 VERSION
 
-Version 0.01
+Version 0.02
 
 =cut
 
-our $VERSION = '0.01';
+our $VERSION = '0.02';
 our $ERROR = '';
 
 =head1 SYNOPSIS
@@ -31,6 +31,16 @@ our $ERROR = '';
 	$sd2->forward_data_source( friends => \&friends );
 	$sd2->reverse_data_source( friends => \&friend_of );
 	@elems = $sd2->make_link('friends', 'Bob', 'Mark');
+
+=head1 DESCRIPTION
+
+C<Algorithm::SixDegrees> is a Perl implementation of a breadth-first
+search through a set of linked elements in order to find the shortest
+possible chain linking two specific elements together.
+
+In simpler terms, this module will take a bunch of related items and
+attempt to find a relationship between two of them.  It looks for the
+shortest (and generally, simplest) relationship it can find.
 
 =head1 CONSTRUCTOR
 
@@ -56,8 +66,8 @@ sub new {
 
 =head2 forward_data_source( name => \&sub );
 
-Tells C<Algorithm::SixDegrees> that all items in the data set describing
-C<name> can be retrieved by calling C<sub>.  See L<SUBROUTINE RULES>.
+Tells C<Algorithm::SixDegrees> that all items in the data set relating to
+C<name> can be retrieved by calling C<sub>.  See L</SUBROUTINE RULES>.
 
 In our friends example above, if Bob considers Mark a friend, but Mark
 doesn't consider Bob a friend, calling the sub with "Bob" as an argument
@@ -68,8 +78,9 @@ should not return "Bob".
 
 sub forward_data_source {
 	my ($self,$name, $sub) = @_;
-	die 'ack' unless defined($name);
-	die 'eek' unless defined($sub);
+	die "Data sources must be named\n" unless defined($name);
+	die "Data sources must have code supplied\n" unless defined($sub);
+	die "Data sources must have a coderef argument\n" unless ref($sub) && isa($sub,'CODE');
 	$self->{'_source_left'}{$name} = $sub;
 	foreach my $source (@{$self->{'_sources'}}) {
 		return if $source eq $name;
@@ -80,8 +91,8 @@ sub forward_data_source {
 
 =head2 reverse_data_source( name => \&sub );
 
-Tells C<Algorithm::SixDegrees> that all items in the data set described
-by C<name> can be retrieved by calling C<sub>.  See L<SUBROUTINE RULES>.
+Tells C<Algorithm::SixDegrees> that all items in the data set related to 
+by C<name> can be retrieved by calling C<sub>.  See L</SUBROUTINE RULES>.
 
 In the same friends example, calling the sub with "Bob" as an argument
 should not return "Mark", but calling the sub with "Mark" as an argument
@@ -91,8 +102,9 @@ should return "Bob".
 
 sub reverse_data_source {
 	my ($self,$name, $sub) = @_;
-	die 'ack' unless defined($name);
-	die 'eek' unless defined($sub);
+	die "Data sources must be named\n" unless defined($name);
+	die "Data sources must have code supplied\n" unless defined($sub);
+	die "Data sources must have a coderef argument\n" unless ref($sub) && isa($sub,'CODE');
 	$self->{'_source_right'}{$name} = $sub;
 	foreach my $source (@{$self->{'_sources'}}) {
 		return if $source eq $name;
@@ -128,7 +140,7 @@ sub make_link {
 	my ($self,$mainsource, $start, $end) = @_;
 	$ERROR = undef;
 
-	unless (isa($self,__PACKAGE__)) {
+	unless (ref($self) && isa($self,__PACKAGE__)) {
 		$ERROR = 'Invalid object reference used to call make_link';
 		return;
 	}
@@ -163,19 +175,21 @@ sub make_link {
 	foreach my $source (@sources) {
 		if ($mainsource eq $source) {
 			$source_exists = 1;
+			$leftside{$source} = {$start, undef};
+			$rightside{$source} = {$end, undef};
 		} else {
 			$altsource = $source;
+			$leftside{$source} = {};
+			$rightside{$source} = {};
 		}
-		unless (isa($self->{'_source_left'}{$source},'CODE')) {
+		unless (ref($self->{'_source_left'}) && isa($self->{'_source_left'}{$source},'CODE')) {
 			$ERROR = "Source '$source' does not have a valid forward subroutine";
 			return;
 		}
-		unless (isa($self->{'_source_right'}{$source},'CODE')) {
+		unless (ref($self->{'_source_right'}) && isa($self->{'_source_right'}{$source},'CODE')) {
 			$ERROR = "Source '$source' does not have a valid reverse subroutine";
 			return;
 		}
-		$leftside{$source} = {$start, undef};
-		$rightside{$source} = {$end, undef};
 		$self->{'_investigated'}{$source} = {};
 	}
 	unless ($source_exists) {
@@ -187,6 +201,7 @@ sub make_link {
 		return;
 	}
 
+
 	if ($start eq $end) {
 		# Only one element if the start and end are the same.
 		return wantarray ? ($start) : [$start];
@@ -194,6 +209,48 @@ sub make_link {
 
 	my $leftcount = 1;
 	my $rightcount = 1;
+
+	# If altsource exists, pull the left side main, then pull the right side main,
+	# and check for middle matches.  This reduces database hits as opposed to
+	# where it's pulled left main - left alt; left alt >= 1 at that point, whereas
+	# right main on the first loop == 1.  Following that, pull the left alt and 
+	# then the right alt, which gets the CHAINLOOP back in synch.
+
+	if (defined($altsource)) {
+		my ($count,$id,$err) = $self->_match('left',$mainsource,$altsource,\%leftside,\%rightside);
+		if (defined($err)) { $ERROR = $err; return; };
+		if (defined($id)) { $ERROR = 'Internal error, id cannot match here'; return; };
+		return if !defined($count) || $count == 0;
+
+		($count,$id,$err) = $self->_match('right',$mainsource,$altsource,\%rightside,\%leftside);
+		if (defined($err)) { $ERROR = $err; return; };
+		if (defined($id)) { 
+			my @abc = ($leftside{$altsource}{$id},$id,$rightside{$altsource}{$id});
+			return wantarray ? @abc : \@abc;
+		};
+		return if !defined($count) || $count == 0;
+
+		($leftcount,$id,$err) = $self->_match('left',$altsource,$mainsource,\%leftside,\%rightside);
+		if (defined($err)) { $ERROR = $err; return; };
+		if (defined($id)) { $ERROR = 'Internal error, id cannot match here'; return; };
+		return if !defined($leftcount) || $leftcount == 0;
+
+		($rightcount,$id,$err) = $self->_match('right',$altsource,$mainsource,\%rightside,\%leftside);
+		if (defined($err)) { $ERROR = $err; return; };
+		if (defined($id)) { 
+			my $la = $leftside{$mainsource}{$id};
+			my $lm = $leftside{$altsource}{$la};
+			my $ra = $rightside{$mainsource}{$id};
+			my $rm = $rightside{$altsource}{$ra};
+			unless (defined($la) && defined($lm) && defined($ra) && defined($rm)) {
+				$ERROR = 'Internal error, identifier not defined';
+				return;
+			}
+			return wantarray ? ($lm,$la,$id,$ra,$rm) : [$lm,$la,$id,$ra,$rm];
+		};
+		return if !defined($rightcount) || $rightcount == 0;
+
+	}
 
 	# There is bias here, but the tie needs to be broken, so in the
 	# event of a tie, move left to right in the chain.
@@ -252,13 +309,24 @@ sub make_link {
 	return wantarray ? () : [];
 }
 
+=head2 error
+
+Returns the current value of C<$Algorithm::SixDegrees::ERROR>.  See
+L</SUBROUTINE RULES>.
+
+=cut
+
+sub error {
+	return $ERROR;
+}
+
 sub _match_two {
 	my ($self,$side,$mainsource,$altsource,$thisside,$thatside) = @_;
 	# Assume $self is OK since this is an internal function
 	my ($count,$id,$err) = $self->_match($side,$mainsource,$altsource,$thisside,$thatside);
 	return (undef,undef,$err) if defined($err);
 	return ($count,$id,$err) if defined($id);
-	return (0,undef,undef) if defined($count) && $count == 0;
+	return (0,undef,undef) if !defined($count) || $count == 0;
 	# mental note: this should never return an id
 	# after all, you can't have two mains together in a true
 	# alternating chain
@@ -331,13 +399,13 @@ be notified of progress on your bug as I make changes.
 
 =head1 ACKNOWLEDGEMENTS
 
-Andy Lester and Ricardo Signes worked on Module::Starter, which helped
+Andy Lester and Ricardo Signes wrote Module::Starter, which helped
 get the framework up and running fairly quickly.
 
-Brad Fitzpatrick of L<livejournal.com> for giving me access to a
-LiveJournal interface to determine linking information on that site,
-which enabled me to write the algorithm that has been reduced into
-this module.
+Brad Fitzpatrick of L<http://livejournal.com> for giving me access
+to a LiveJournal interface to determine linking information on that
+site, which enabled me to write the algorithm that has been reduced
+into this module.
 
 =head1 COPYRIGHT & LICENSE
 

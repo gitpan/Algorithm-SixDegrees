@@ -1,7 +1,9 @@
-use Test::More tests => 12;
+#!perl -T
+
+use Test::More tests => 22;
 
 BEGIN {
-use_ok( 'Algorithm::SixDegrees' );
+	use_ok( 'Algorithm::SixDegrees' );
 }
 
 my $sd = new Algorithm::SixDegrees;
@@ -19,6 +21,26 @@ is_deeply([$sd->make_link('Simple','one','three')],['one','two','three'],'Triple
 is($Algorithm::SixDegrees::ERROR,undef,'No error during make_link');
 is_deeply([$sd->make_link('Simple','one','nine')],['one','two','three','four','five','six','seven','eight','nine'],'9 element link OK');
 is($Algorithm::SixDegrees::ERROR,undef,'No error during make_link');
+
+# Test specifying the forward/reverse manually
+my $sd_forward = new Algorithm::SixDegrees;
+isa_ok($sd_forward,'Algorithm::SixDegrees');
+$sd_forward->forward_data_source( Simple => \&Simple );
+$sd_forward->reverse_data_source( Simple => \&Simple );
+is_deeply(scalar($sd_forward->make_link('Simple','one','one')),['one'],'Manual single element link OK');
+is(Algorithm::SixDegrees->error,undef,'No error during make_link');
+is_deeply(scalar($sd_forward->make_link('Simple','one','nine')),['one','two','three','four','five','six','seven','eight','nine'],'Manual 9 element link OK');
+is(Algorithm::SixDegrees->error,undef,'No error during make_link');
+
+# Test specifying reverse/forward instead
+my $sd_reverse = new Algorithm::SixDegrees;
+isa_ok($sd_reverse,'Algorithm::SixDegrees');
+$sd_reverse->reverse_data_source( Simple => \&Simple );
+$sd_reverse->forward_data_source( Simple => \&Simple );
+is_deeply(scalar($sd_reverse->make_link('Simple','one','one')),['one'],'Reversed single element link OK');
+is(Algorithm::SixDegrees->error,undef,'No error during make_link');
+is_deeply(scalar($sd_reverse->make_link('Simple','one','nine')),['one','two','three','four','five','six','seven','eight','nine'],'Reversed 9 element link OK');
+is(Algorithm::SixDegrees->error,undef,'No error during make_link');
 
 exit(0);
 
